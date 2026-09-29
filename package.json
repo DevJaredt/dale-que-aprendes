@@ -1,0 +1,34 @@
+{
+  "name": "dale-que-aprendes",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Juego educativo para colegios de Colombia (primaria y secundaria)",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n SERVIDOR,VITE -c yellow,cyan \"node server/index.js\" \"vite\"",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "preview": "vite preview",
+    "test:render": "node scripts/smoke.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "jsdom": "^29.1.1",
+    "vite": "^5.4.2",
+    "vitest": "^2.1.9"
+  }
+}
