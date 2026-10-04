@@ -128,6 +128,11 @@ export const api = {
 
   resumen: () => pedir('/profesor/resumen', { rol: 'profe' }),
 
+  perfilProfesor: () => pedir('/profesor/perfil', { rol: 'profe' }),
+
+  actualizarPerfilProfesor: (datos) =>
+    pedir('/profesor/perfil', { method: 'PUT', rol: 'profe', body: JSON.stringify(datos) }),
+
   reportes: () => pedir('/profesor/reportes', { rol: 'profe' }),
 
   /* ---- Cuentas de estudiante ---- */

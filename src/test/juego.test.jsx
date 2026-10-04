@@ -56,6 +56,18 @@ const RESUMEN = {
 
 const respuestaJson = (datos, status = 200) => ({ ok: status < 400, status, json: async () => datos })
 
+const PERFIL_PROFE = { nombre: 'Profe Test', avatar: '👩‍🏫' }
+
+const INFO_SERVIDOR = {
+  puerto: 3000,
+  hostname: 'pc-del-colegio',
+  ips: [
+    { interfaz: 'Wi-Fi', ip: '192.168.1.68', virtual: false, url: 'http://192.168.1.68:3000' },
+    { interfaz: 'vEthernet (WSL)', ip: '172.31.128.1', virtual: true, url: 'http://172.31.128.1:3000' },
+  ],
+  urlSugerida: 'http://192.168.1.68:3000',
+}
+
 function stubFetch({ tarea = TAREA, claveCorrecta = 'dale2026', resumen = RESUMEN } = {}) {
   global.fetch = vi.fn(async (url, opciones = {}) => {
     const u = String(url)
@@ -73,7 +85,14 @@ function stubFetch({ tarea = TAREA, claveCorrecta = 'dale2026', resumen = RESUME
         : respuestaJson({ error: 'Clave incorrecta. Vuelve a intentarlo.' }, 401)
     }
     if (u.includes('/api/profesor/sesion')) return respuestaJson({ ok: true })
+    if (u.includes('/api/profesor/perfil')) {
+      return respuestaJson({
+        profesor: PERFIL_PROFE,
+        estadisticas: { tareas: 1, intentos: 3, estudiantes: 2, estudiantesConCuenta: 1 },
+      })
+    }
     if (u.includes('/api/profesor/resumen')) return respuestaJson(resumen)
+    if (u.includes('/api/servidor/info')) return respuestaJson(INFO_SERVIDOR)
     if (u.includes('/api/intentos') && metodo === 'POST') return respuestaJson({ id: 'i1' }, 201)
     if (u.match(/\/api\/tareas\/[A-Z0-9]+\/resultados/)) {
       return respuestaJson({ tarea, intentos: [], porPregunta: [], resumen: {} })
@@ -225,7 +244,7 @@ describe('Panel del profesor', () => {
     fireEvent.change(document.querySelector('input[type="password"]'), { target: { value: 'dale2026' } })
     fireEvent.click(screen.getByText(/Entrar al panel/))
 
-    await waitFor(() => expect(screen.getByText(/Panel de/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/Panel docente/)).toBeInTheDocument())
     // Métricas del dashboard.
     expect(screen.getByText('Participaciones')).toBeInTheDocument()
     expect(screen.getByText('Estudiantes')).toBeInTheDocument()
@@ -235,6 +254,58 @@ describe('Panel del profesor', () => {
     expect(screen.getByText(/Por grado/)).toBeInTheDocument()
     // Última participación del estudiante.
     expect(screen.getByText(/Ana/)).toBeInTheDocument()
+  })
+
+  it('no muestra la vista de estudiante dentro del área de docentes', async () => {
+    setTokenProfe('token-test')
+    stubFetch()
+    montar('/profesor')
+
+    await waitFor(() => expect(screen.getByText(/Panel docente/)).toBeInTheDocument())
+    expect(screen.queryByText(/Soy estudiante/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Mi progreso/)).not.toBeInTheDocument()
+  })
+
+  it('muestra la página de conexión con la IP de la red, no localhost', async () => {
+    setTokenProfe('token-test')
+    stubFetch()
+    montar('/profesor/conexion')
+
+    await waitFor(() => expect(screen.getByText(/Conexión para los estudiantes/)).toBeInTheDocument())
+
+    // Espera a que llegue la información del servidor.
+    await waitFor(() =>
+      expect(screen.getAllByText(/192\.168\.1\.68:3000/).length).toBeGreaterThan(0)
+    )
+    // Ya no debe quedar ningún enlace con localhost.
+    expect(screen.queryByText(/localhost:3000/)).not.toBeInTheDocument()
+    // Y la dirección de la red queda guardada para los QR.
+    expect(localStorage.getItem('dqa_url_base')).toBe('http://192.168.1.68:3000')
+  })
+
+  it('lista las direcciones detectadas y permite elegir otra', async () => {
+    setTokenProfe('token-test')
+    stubFetch()
+    montar('/profesor/conexion')
+
+    await waitFor(() => expect(screen.getByText(/Direcciones detectadas/)).toBeInTheDocument())
+    expect(screen.getByText('Wi-Fi')).toBeInTheDocument()
+    expect(screen.getByText(/vEthernet/)).toBeInTheDocument()
+    // La virtual aparece marcada como tal.
+    expect(screen.getByText(/\(virtual\)/)).toBeInTheDocument()
+  })
+
+  it('el perfil del profesor guarda el nombre y el avatar', async () => {
+    setTokenProfe('token-test')
+    stubFetch()
+    montar('/profesor/perfil')
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /Mi perfil/ })).toBeInTheDocument()
+    )
+    expect(screen.getByDisplayValue('Profe Test')).toBeInTheDocument()
+    expect(screen.getByText(/Cambiar la clave de profesores/)).toBeInTheDocument()
+    expect(screen.getByText(/Tareas creadas/)).toBeInTheDocument()
   })
 
   it('muestra el asistente de creación con el banco de preguntas', async () => {
@@ -269,7 +340,10 @@ describe('Panel del profesor', () => {
   it('avisa cuando la sesión caducó en lugar de expulsar en silencio', async () => {
     setTokenProfe('token-viejo')
     global.fetch = vi.fn(async (url) => {
-      if (String(url).includes('/api/profesor/sesion')) {
+      if (
+        String(url).includes('/api/profesor/sesion') ||
+        String(url).includes('/api/profesor/perfil')
+      ) {
         return respuestaJson({ error: 'Tu sesión de profesor expiró.' }, 401)
       }
       return respuestaJson({ ok: true })

@@ -102,14 +102,60 @@ const id = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8
 const limpiarTexto = (v, max = 400) =>
   String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 
-function direccionLan() {
+/** Interfaces que no sirven para que un celular se conecte. */
+const INTERFACES_IGNORADAS = [
+  /^vEthernet/i,
+  /hyper-?v/i,
+  /^virtualbox/i,
+  /^vmware/i,
+  /^loopback/i,
+  /^docker/i,
+  /^br-/i,
+  /tailscale/i,
+  /zerotier/i,
+  /bluetooth/i,
+  /^conexión de área local\*?/i,
+  /^local area connection\*?/i,
+]
+
+const esIpSinConexion = (ip) => ip.startsWith('169.254.') // APIPA: no hay red real
+
+/** Ordena las IPs: primero las de redes domésticas/colegio típicas. */
+function prioridadIp(ip) {
+  if (ip.startsWith('192.168.')) return 0
+  if (ip.startsWith('10.')) return 1
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return 2
+  return 3
+}
+
+/**
+ * Lista las direcciones IPv4 útiles, con su nombre de interfaz.
+ * Prioriza las redes reales (Wi-Fi, cable) sobre las virtuales.
+ */
+function listarDirecciones() {
   const redes = os.networkInterfaces()
-  for (const nombre of Object.keys(redes)) {
-    for (const red of redes[nombre] || []) {
-      if (red.family === 'IPv4' && !red.internal) return red.address
+  const lista = []
+
+  for (const [nombre, direcciones] of Object.entries(redes)) {
+    const virtual = INTERFACES_IGNORADAS.some((re) => re.test(nombre))
+    for (const dir of direcciones || []) {
+      if (dir.family !== 'IPv4' || dir.internal) continue
+      if (esIpSinConexion(dir.address)) continue
+      lista.push({ interfaz: nombre, ip: dir.address, virtual })
     }
   }
-  return 'localhost'
+
+  return lista.sort(
+    (a, b) =>
+      Number(a.virtual) - Number(b.virtual) ||
+      prioridadIp(a.ip) - prioridadIp(b.ip) ||
+      a.ip.localeCompare(b.ip)
+  )
+}
+
+/** Mejor IP para compartir con los estudiantes (o 'localhost' si no hay red). */
+function direccionLan() {
+  return listarDirecciones()[0]?.ip || 'localhost'
 }
 
 /** Precisión promedio (0-100) de una lista de intentos. */
@@ -281,7 +327,22 @@ app.use('/api', (_req, res, next) => {
 })
 
 app.get('/api/salud', (_req, res) => {
-  res.json({ ok: true, version: 3, hora: new Date().toISOString() })
+  res.json({ ok: true, version: 4, hora: new Date().toISOString() })
+})
+
+/**
+ * Información para que los estudiantes se conecten.
+ * Es pública y permite a la interfaz armar bien los enlaces y el QR
+ * (usando la IP de la red en lugar de "localhost").
+ */
+app.get('/api/servidor/info', (_req, res) => {
+  const ips = listarDirecciones()
+  res.json({
+    puerto: PUERTO,
+    hostname: os.hostname(),
+    ips: ips.map((d) => ({ ...d, url: `http://${d.ip}:${PUERTO}` })),
+    urlSugerida: ips.length ? `http://${ips[0].ip}:${PUERTO}` : `http://localhost:${PUERTO}`,
+  })
 })
 
 /* ---------------- Sesión de profesor ---------------- */
@@ -330,6 +391,39 @@ app.post('/api/profesor/clave', soloProfesor, async (req, res) => {
 
   await guardarDb()
   res.json({ ok: true })
+})
+
+/* ---------------- Perfil del profesor ---------------- */
+
+const perfilProfesor = () => ({
+  nombre: db.config?.profesor?.nombre || 'Profesor(a)',
+  avatar: db.config?.profesor?.avatar || '👩‍🏫',
+})
+
+app.get('/api/profesor/perfil', soloProfesor, (_req, res) => {
+  res.json({
+    profesor: perfilProfesor(),
+    estadisticas: {
+      tareas: db.tareas.length,
+      intentos: db.intentos.length,
+      estudiantes: new Set(db.intentos.map((i) => String(i.estudiante).toLowerCase())).size,
+      estudiantesConCuenta: db.estudiantes.length,
+    },
+  })
+})
+
+app.put('/api/profesor/perfil', soloProfesor, async (req, res) => {
+  const b = req.body || {}
+  const nombre = limpiarTexto(b.nombre, 60)
+  const avatar = limpiarTexto(b.avatar, 8)
+
+  if (!db.config.profesor) db.config.profesor = {}
+  if (nombre) db.config.profesor.nombre = nombre
+  if (avatar) db.config.profesor.avatar = avatar
+  else if (!db.config.profesor.avatar) db.config.profesor.avatar = '👩‍🏫'
+
+  await guardarDb()
+  res.json({ profesor: perfilProfesor() })
 })
 
 /* ---------------- Cuentas de estudiante ---------------- */
@@ -441,7 +535,7 @@ app.post('/api/tareas', soloProfesor, async (req, res) => {
     grado: limpiarTexto(b.grado, 20),
     materia: limpiarTexto(b.materia, 40),
     tema: limpiarTexto(b.tema, 80),
-    profesor: limpiarTexto(b.profesor, 60) || 'Profesor(a)',
+    profesor: limpiarTexto(b.profesor, 60) || perfilProfesor().nombre,
     fecha: new Date().toISOString(),
     config: {
       tiempoPorPregunta: Math.min(180, Math.max(0, Number(b.config?.tiempoPorPregunta) || 30)),
@@ -878,28 +972,48 @@ app.use((err, _req, res, _next) => {
 
 export function iniciar() {
   const servidor = app.listen(PUERTO, () => {
-    const ip = direccionLan()
-    const url = `http://${ip}:${PUERTO}`
+    const direcciones = listarDirecciones()
+    const principal = direcciones[0]
+    const url = principal ? `http://${principal.ip}:${PUERTO}` : `http://localhost:${PUERTO}`
+
     console.log('\n  ╔══════════════════════════════════════════════╗')
     console.log('  ║        ¡DALE QUE APRENDES!  🎈               ║')
     console.log('  ╚══════════════════════════════════════════════╝\n')
-    console.log(`  Servidor listo en:  http://localhost:${PUERTO}`)
-    console.log(`  En la red del colegio:  ${url}\n`)
+    console.log(`  En este computador:  http://localhost:${PUERTO}`)
+
+    if (direcciones.length === 0) {
+      console.log('\n  ⚠️  No se detectó una red local.')
+      console.log('     Conéctate al WiFi del colegio para que los estudiantes entren.\n')
+    } else {
+      console.log('\n  📱 Direcciones para los estudiantes (deben estar en la misma WiFi):\n')
+      for (const d of direcciones) {
+        const marca = d.ip === principal.ip ? '   ← usa esta' : ''
+        console.log(`     http://${d.ip}:${PUERTO}   (${d.interfaz})${marca}`)
+      }
+      console.log('')
+    }
+
     if (db.config.claveHash === hashClave(CLAVE_INICIAL)) {
       console.log(`  👩‍🏫 Clave de profesores:  ${CLAVE_INICIAL}`)
       console.log('     (cámbiala desde el panel del profesor)\n')
     } else {
       console.log('  👩‍🏫 Clave de profesores: la que definiste en el panel\n')
     }
+
     if (!fs.existsSync(DIR_DIST)) {
       console.log('  (Sin frontend compilado: usa "npm run dev" para desarrollo)\n')
     }
-    QRCode.toString(url, { type: 'terminal', small: true }, (err, qr) => {
-      if (!err) {
-        console.log('  Escanea para entrar desde el celular:\n')
-        console.log(qr)
-      }
-    })
+
+    if (direcciones.length > 0) {
+      QRCode.toString(url, { type: 'terminal', small: true }, (err, qr) => {
+        if (!err) {
+          console.log('  Escanea este código desde el celular:\n')
+          console.log(qr)
+        }
+      })
+      console.log('  ¿El celular no carga la página? Casi siempre es el firewall de Windows.')
+      console.log('  Abre otra terminal COMO ADMINISTRADOR y ejecuta:  npm run firewall\n')
+    }
   })
 
   // Mensaje amigable si el puerto ya está ocupado, en lugar de un volcado de error.

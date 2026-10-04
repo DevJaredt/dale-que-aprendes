@@ -21,6 +21,8 @@ const RUTAS = [
   '/profesor',
   '/profesor/crear',
   '/profesor/reportes',
+  '/profesor/conexion',
+  '/profesor/perfil',
   '/profesor/vivo/ABC123',
   '/profesor/tarea/ABC123',
   '/ruta-que-no-existe',

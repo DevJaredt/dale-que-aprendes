@@ -204,6 +204,71 @@ describe('Dashboard del profesor', () => {
   })
 })
 
+describe('Información del servidor', () => {
+  it('informa las direcciones de la red para los estudiantes', async () => {
+    const { status, datos } = await pedir('/api/servidor/info')
+    expect(status).toBe(200)
+    expect(typeof datos.urlSugerida).toBe('string')
+    expect(datos.urlSugerida).toMatch(/^http:\/\//)
+    expect(Array.isArray(datos.ips)).toBe(true)
+    // Nunca debe ofrecer direcciones sin conexión (169.254.x.x).
+    expect(datos.ips.every((i) => !i.ip.startsWith('169.254.'))).toBe(true)
+    expect(datos.ips.every((i) => !i.ip.startsWith('127.'))).toBe(true)
+    // Cada dirección trae su enlace listo y su interfaz.
+    for (const ip of datos.ips) {
+      expect(ip.url).toBe(`http://${ip.ip}:${datos.puerto}`)
+      expect(typeof ip.interfaz).toBe('string')
+      expect(typeof ip.virtual).toBe('boolean')
+    }
+  })
+})
+
+describe('Perfil del profesor', () => {
+  it('exige sesión de profesor', async () => {
+    const { status } = await pedir('/api/profesor/perfil')
+    expect(status).toBe(401)
+  })
+
+  it('devuelve el perfil con estadísticas', async () => {
+    const { status, datos } = await pedir('/api/profesor/perfil', { headers: conToken() })
+    expect(status).toBe(200)
+    expect(datos.profesor.nombre).toBe('Profesor(a)')
+    expect(datos.profesor.avatar).toBeTruthy()
+    expect(datos.estadisticas.tareas).toBe(1)
+    expect(datos.estadisticas.intentos).toBe(1)
+  })
+
+  it('guarda el nombre y el avatar', async () => {
+    const { status, datos } = await pedir('/api/profesor/perfil', {
+      method: 'PUT',
+      headers: conToken(),
+      body: JSON.stringify({ nombre: 'Profe Álvaro', avatar: '👨‍🏫' }),
+    })
+    expect(status).toBe(200)
+    expect(datos.profesor.nombre).toBe('Profe Álvaro')
+    expect(datos.profesor.avatar).toBe('👨‍🏫')
+
+    const despues = await pedir('/api/profesor/perfil', { headers: conToken() })
+    expect(despues.datos.profesor.nombre).toBe('Profe Álvaro')
+  })
+
+  it('usa el nombre del perfil cuando la tarea no lo especifica', async () => {
+    const sinProfesor = { ...TAREA_EJEMPLO, titulo: 'Tarea sin autor explícito' }
+    delete sinProfesor.profesor
+
+    const { status, datos } = await pedir('/api/tareas', {
+      method: 'POST',
+      headers: conToken(),
+      body: JSON.stringify(sinProfesor),
+    })
+    expect(status).toBe(201)
+
+    const lista = await pedir('/api/tareas', { headers: conToken() })
+    const creada = lista.datos.tareas.find((t) => t.codigo === datos.codigo)
+    expect(creada.profesor).toBe('Profe Álvaro')
+  })
+})
+
 describe('Cambio de clave y borrado', () => {
   it('rechaza el cambio si la clave actual no coincide', async () => {
     const { status } = await pedir('/api/profesor/clave', {
@@ -236,12 +301,14 @@ describe('Cambio de clave y borrado', () => {
     token = nueva.datos.token
   })
 
-  it('borra la tarea y sus resultados', async () => {
+  it('borra las tareas y sus resultados', async () => {
     const lista = await pedir('/api/tareas', { headers: conToken() })
-    const idTarea = lista.datos.tareas[0].id
+    expect(lista.datos.tareas.length).toBeGreaterThan(0)
 
-    const borrado = await pedir(`/api/tareas/${idTarea}`, { method: 'DELETE', headers: conToken() })
-    expect(borrado.status).toBe(200)
+    for (const t of lista.datos.tareas) {
+      const borrado = await pedir(`/api/tareas/${t.id}`, { method: 'DELETE', headers: conToken() })
+      expect(borrado.status).toBe(200)
+    }
 
     const despues = await pedir('/api/profesor/resumen', { headers: conToken() })
     expect(despues.datos.totalTareas).toBe(0)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, esErrorDeSesion } from '../lib/api.js'
+import { useConexion } from '../lib/conexion.js'
 import { formatearTiempo } from '../lib/util.js'
 import Boton from '../components/Boton.jsx'
 import CodigoQR from '../components/CodigoQR.jsx'
@@ -17,6 +18,7 @@ const RANGOS = [
 export default function VerResultados() {
   const { codigo } = useParams()
   const navegar = useNavigate()
+  const { base } = useConexion()
   const [datos, setDatos] = useState(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -70,7 +72,7 @@ export default function VerResultados() {
   }
 
   const { tarea, intentos, porPregunta, resumen } = datos
-  const enlace = `${window.location.origin}/entrar?codigo=${tarea.codigo}`
+  const enlace = `${base}/entrar?codigo=${tarea.codigo}`
   const res = resumen || {}
 
   function exportarCsv() {

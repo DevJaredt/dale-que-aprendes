@@ -75,19 +75,82 @@ npm run build   # compila la aplicación
 npm start       # enciende el servidor
 ```
 
-La consola mostrará algo así:
+La consola te muestra **todas** las direcciones de tu computador y marca la que deben usar:
 
 ```
-Servidor listo en:  http://localhost:3000
-En la red del colegio:  http://192.168.1.20:3000
-[ QR ]
+  En este computador:  http://localhost:3000
+
+  📱 Direcciones para los estudiantes (deben estar en la misma WiFi):
+
+     http://192.168.1.68:3000   (Wi-Fi)   ← usa esta
+     http://172.31.128.1:3000   (vEthernet (WSL))
+
+  👩‍🏫 Clave de profesores:  dale2026
 ```
 
 1. El profe abre `http://localhost:3000` en su computador.
-2. Los estudiantes se conectan a la **misma red WiFi** y entran a la dirección de la red del colegio (o **escanean el QR**).
+2. Los estudiantes entran al **mismo WiFi** y abren la dirección marcada, o **escanean el QR**.
 3. ¡A jugar!
 
-> 💡 Si los estudiantes no pueden entrar, revisa el firewall de Windows y permite Node.js en redes privadas. También confirma que todos estén en la misma red WiFi.
+---
+
+## 📡 Conectar los celulares (sin pagar hosting)
+
+**No necesitas internet ni hosting.** El juego corre en el computador del profe y los estudiantes entran por la red WiFi del colegio. Lo único importante es que el celular pueda *alcanzar* ese computador.
+
+### La app ya lo resuelve sola
+
+Si abres la app en `localhost`, los enlaces y los QR usarían `localhost`, que en el celular significa *el celular mismo*. Por eso la app le pregunta al servidor las direcciones de la red y arma el QR con la correcta.
+
+En **Panel → 📡 Conexión** puedes:
+- Ver la dirección que deben usar, con su QR.
+- Ver **todas** las direcciones detectadas y **elegir** otra si tienes varias (WiFi, WSL, VPN…).
+- Seguir la lista de verificación si el celular no carga.
+
+### Si el celular no carga: el firewall
+
+Es **la causa más común**. Abre una terminal **como administrador** y ejecuta una sola vez:
+
+```powershell
+npm run firewall
+```
+
+Eso crea una regla que permite el puerto en redes privadas. Para quitarla después:
+
+```powershell
+Remove-NetFirewallRule -DisplayName "Dale Que Aprendes (puerto 3000)"
+```
+
+### Otras causas frecuentes
+
+| Síntoma | Causa probable |
+|---|---|
+| No carga nada | Firewall de Windows (ver arriba) |
+| No carga nada | El celular está en datos móviles, no en el WiFi |
+| No carga nada | WiFi de **invitados**: suelen bloquear la comunicación entre dispositivos |
+| No carga nada | VPN encendida en el celular o el computador |
+| Carga en el PC pero no en el celular | Elegiste la dirección equivocada en **📡 Conexión** |
+
+> 💡 Prueba rápida: desde el navegador del celular escribe la dirección a mano. Si tampoco carga, es red o firewall, no el juego.
+
+---
+
+## 🌐 ¿Y si quiero publicarlo en internet?
+
+Solo hace falta si los estudiantes van a jugar **fuera** de la red del colegio (desde su casa). Para el aula, la red local es más rápida y no cuesta nada.
+
+Opciones gratuitas:
+
+| Servicio | A favor | En contra |
+|---|---|---|
+| **Railway** | Despliegue directo desde este proyecto; da crédito de prueba | El plan gratuito es solo de prueba (luego tiene costo) |
+| **Render** | Plan gratuito real | El servicio **duerme** tras unos minutos sin uso (la primera visita tarda ~1 min) y **el disco se borra** al reiniciar, así que se perderían las tareas |
+| **Oracle Cloud / Google Cloud** | Máquina virtual gratis de verdad | Requiere tarjeta y conocimientos de servidor |
+| **Hugging Face Spaces** | Gratis, soporta Node | Almacenamiento efímero, igual que Render |
+
+> ⚠️ **Importante:** el juego guarda todo en `server/data/db.json`. En los hostings gratuitos ese archivo **se borra** cuando el servicio se reinicia. Para usarlo en serio en internet habría que cambiar a una base de datos en la nube. **En el aula no hay ese problema**: el archivo vive en tu computador.
+
+Si quieres, puedo dejarte preparado el despliegue en Railway con un `Dockerfile` y una base de datos, o dejarlo así para uso local.
 
 ---
 
@@ -102,7 +165,7 @@ Levanta el servidor y Vite con recarga automática en `http://localhost:5173`.
 ### Pruebas
 
 ```bash
-npm test          # 70 pruebas: API, interfaz, insignias, banco y persistencia de sesión
+npm test          # 79 pruebas: API, interfaz, insignias, banco, conexión y persistencia
 npm run test:render   # verifica que todas las páginas y tipos de pregunta rendericen
 ```
 
@@ -116,14 +179,18 @@ del profesor no se pierde.
 
 ## 👩‍🏫 Cómo crear una tarea (profesor)
 
+> El área del profesor es **aparte** de la del estudiante: tiene su propio menú lateral
+> (Panel · Crear tarea · Reportes · Conexión · Mi perfil) y su propio ingreso con clave.
+
 1. Entra a **"Soy profesor(a)"** e ingresa tu **nombre** y la **clave de profesores**.
 2. En el panel verás tu **dashboard**: participaciones, estudiantes, precisión promedio, desglose por materia y grado, y las últimas jugadas.
-3. Toca **"Crear tarea"**.
-4. **Paso 1:** título, grado, materia y tema. Ajusta tiempo por pregunta, vidas y si se muestra la explicación.
-5. **Paso 2:** agrega preguntas del **banco sugerido** o **crea las tuyas**. Puedes editar y quitar las que quieras.
-6. **Paso 3:** aparece el **código** y el **QR**. Proyéctalos o compártelos.
-7. En **"📊 Resultados"** de cada tarea ves la distribución de puntajes, la tabla de posiciones, el desempeño por pregunta y puedes exportar a CSV.
-8. Con **"🔴 En vivo"** proyectas el ranking mientras juegan, y en **"📈 Reportes"** comparas materias, grados y semanas.
+3. En **👤 Mi perfil** cambias tu nombre y avatar (aparecen como autor de tus tareas).
+4. Toca **"Crear tarea"**.
+5. **Paso 1:** título, grado, materia y tema. Ajusta tiempo por pregunta, vidas y si se muestra la explicación.
+6. **Paso 2:** agrega preguntas del **banco sugerido** o **crea las tuyas**. Puedes editar y quitar las que quieras.
+7. **Paso 3:** aparece el **código** y el **QR**. Proyéctalos o compártelos.
+8. En **"📊 Resultados"** de cada tarea ves la distribución de puntajes, la tabla de posiciones, el desempeño por pregunta y puedes exportar a CSV.
+9. Con **"🔴 En vivo"** proyectas el ranking mientras juegan, y en **"📈 Reportes"** comparas materias, grados y semanas.
 
 ## 🧑‍🎓 Cómo jugar (estudiante)
 
@@ -193,6 +260,7 @@ app-juego/
 ├─ server/data/db.json      # tareas, resultados, cuentas y sesiones (no se sube a git)
 ├─ scripts/smoke.mjs        # prueba de render de todas las páginas
 ├─ scripts/clave-reset.mjs  # restablece la clave de profesores
+├─ scripts/abrir-firewall.ps1 # abre el puerto para que entren los celulares
 ├─ vitest.config.js         # configuración de las pruebas
 └─ src/
    ├─ data/curriculo.js     # grados → materias → temas (base curricular)
@@ -201,9 +269,14 @@ app-juego/
    ├─ test/                 # pruebas automáticas (interfaz y API)
    ├─ preguntas/            # un componente por tipo de pregunta
    ├─ components/           # botones, QR, confeti, editor de preguntas…
-   ├─ paginas/              # inicio, juego, resultado, progreso, panel, reportes, en vivo…
-   └─ lib/                  # API, sonidos, utilidades
+   ├─ paginas/              # estudiantes: inicio, juego, progreso…
+   │                        # docentes: AreaProfesor + panel, crear, reportes, conexión, perfil
+   └─ lib/                  # API, conexión, sonidos, utilidades
 ```
+
+> 👩‍🏫 **Roles separados:** el área de estudiantes (cabecera azul claro) y el área de docentes
+> (menú lateral azul oscuro) son vistas distintas. Los docentes entran con clave; los
+> estudiantes con su cuenta o con el código de la tarea. Ninguna pantalla se mezcla con la otra.
 
 ---
 

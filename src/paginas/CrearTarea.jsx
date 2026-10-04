@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { GRADOS, materiasDe, temasDe } from '../data/curriculo.js'
 import { filtrarBanco } from '../data/bancoPreguntas.js'
 import { api, getTokenProfe } from '../lib/api.js'
+import { useConexion } from '../lib/conexion.js'
 import { copiarTexto, ETIQUETA_TIPO } from '../lib/util.js'
 import Boton from '../components/Boton.jsx'
 import CodigoQR from '../components/CodigoQR.jsx'
@@ -14,6 +15,7 @@ const OTRO = '__otro__'
 /** Asistente para crear una tarea: datos → preguntas → publicar. */
 export default function CrearTarea() {
   const navegar = useNavigate()
+  const { base } = useConexion()
   const profesor = (() => {
     try {
       return localStorage.getItem('dqa_profesor') || 'Profesor(a)'
@@ -131,7 +133,7 @@ export default function CrearTarea() {
 
   /* ------------------------- Paso 3: publicada ------------------------- */
   if (paso === 3 && publicada) {
-    const enlace = `${window.location.origin}/entrar?codigo=${publicada.codigo}`
+    const enlace = `${base}/entrar?codigo=${publicada.codigo}`
     return (
       <div className="contenedor-angosto">
         <div className="tarjeta animar-entrada" style={{ textAlign: 'center' }}>

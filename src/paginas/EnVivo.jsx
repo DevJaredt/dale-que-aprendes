@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, esErrorDeSesion, getTokenProfe } from '../lib/api.js'
+import { useConexion } from '../lib/conexion.js'
 import { formatearTiempo } from '../lib/util.js'
 import { sonidos } from '../lib/sonidos.js'
 import Boton from '../components/Boton.jsx'
@@ -13,6 +14,7 @@ const CADA = 4000 // milisegundos entre actualizaciones
 export default function EnVivo() {
   const { codigo } = useParams()
   const navegar = useNavigate()
+  const { base } = useConexion()
 
   const [datos, setDatos] = useState(null)
   const [error, setError] = useState('')
@@ -76,7 +78,7 @@ export default function EnVivo() {
   }
 
   const { tarea, total, estudiantes, precision, puntajePromedio, ranking } = datos
-  const enlace = `${window.location.origin}/entrar?codigo=${tarea.codigo}`
+  const enlace = `${base}/entrar?codigo=${tarea.codigo}`
   const podio = ranking.slice(0, 3)
   const resto = ranking.slice(3)
 
