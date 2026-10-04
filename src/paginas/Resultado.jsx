@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { estrellas, mensajeFinal, formatearTiempo, ETIQUETA_TIPO } from '../lib/util.js'
+import { api, getTokenEstudiante } from '../lib/api.js'
+import { sonidos } from '../lib/sonidos.js'
 import Confeti from '../components/Confeti.jsx'
 import Boton from '../components/Boton.jsx'
 import { Cargando } from '../components/Ui.jsx'
@@ -10,6 +12,8 @@ export default function Resultado() {
   const { state } = useLocation()
   const navegar = useNavigate()
   const [datos, setDatos] = useState(state || null)
+  const [logrosNuevos, setLogrosNuevos] = useState([])
+  const [conCuenta, setConCuenta] = useState(false)
 
   useEffect(() => {
     if (datos) return
@@ -20,6 +24,41 @@ export default function Resultado() {
       /* ignore */
     }
   }, [datos])
+
+  // Si el estudiante tiene cuenta, se revisa si desbloqueó insignias nuevas.
+  useEffect(() => {
+    if (!getTokenEstudiante()) return
+    setConCuenta(true)
+    let vigente = true
+    api
+      .perfilEstudiante()
+      .then(({ logros }) => {
+        if (!vigente) return
+        let anteriores = []
+        try {
+          anteriores = JSON.parse(localStorage.getItem('dqa_logros') || '[]')
+        } catch {
+          anteriores = []
+        }
+        const nuevos = logros.filter((l) => l.obtenido && !anteriores.includes(l.id))
+        try {
+          localStorage.setItem(
+            'dqa_logros',
+            JSON.stringify(logros.filter((l) => l.obtenido).map((l) => l.id))
+          )
+        } catch {
+          /* ignore */
+        }
+        if (nuevos.length > 0) {
+          setLogrosNuevos(nuevos)
+          setTimeout(() => sonidos.victoria(), 400)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      vigente = false
+    }
+  }, [])
 
   if (!datos) {
     return (
@@ -91,10 +130,30 @@ export default function Resultado() {
 
         <p style={{ fontWeight: 800, fontSize: '1.05rem' }}>{mensajeFinal(precision)}</p>
 
+        {logrosNuevos.length > 0 && (
+          <div className="logros-nuevos animar-entrada">
+            <h3 style={{ marginBottom: 12 }}>🎉 ¡Desbloqueaste {logrosNuevos.length > 1 ? 'insignias nuevas' : 'una insignia nueva'}!</h3>
+            <div className="logros-grid">
+              {logrosNuevos.map((l) => (
+                <div className="logro obtenido" key={l.id}>
+                  <span className="emoji">{l.emoji}</span>
+                  <strong>{l.nombre}</strong>
+                  <span className="detalle">{l.descripcion}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="acciones-finales">
           <Boton variante="amarillo" tamano="grande" onClick={reintentar}>
             🔄 Intentar otra vez
           </Boton>
+          {conCuenta && (
+            <Boton variante="primario" onClick={() => navegar('/progreso')}>
+              📈 Mi progreso
+            </Boton>
+          )}
           <Boton variante="fantasma" onClick={() => navegar('/entrar')}>
             🎟️ Entrar a otra tarea
           </Boton>

@@ -14,7 +14,10 @@
  * Los profesores pueden usar estas preguntas o crear las suyas.
  */
 
-export const BANCO = [
+import { BANCO_AMPLIADO } from './bancoAmpliado.js'
+
+/** Preguntas base, escritas a mano. */
+const BANCO_BASE = [
   /* ================= MATEMÁTICAS · PRIMARIA ================= */
   {
     id: 'p-mat-01', grado: '1', materia: 'Matemáticas', tema: 'Suma y resta sin llevar', tipo: 'multiple', dificultad: 1,
@@ -185,7 +188,7 @@ export const BANCO = [
     explicacion: 'Hay 2 resultados posibles y ambos son igualmente probables: 1 caso favorable de 2 = 1/2.',
   },
   {
-    id: 'p-mat-28', grado: '11', materia: 'Matemáticas', tema: 'Cálculo: límites y derivadas', tipo: 'multiple', dificultad: 4,
+    id: 'p-mat-28', grado: '11', materia: 'Matemáticas', tema: 'Cálculo: límites y derivadas', tipo: 'multiple', dificultad: 3,
     enunciado: '¿Cuál es la derivada de f(x) = x²?',
     opciones: ['x', '2x', 'x²/2', '2'], correcta: 1,
     explicacion: 'Usando la regla de la potencia: d/dx (xⁿ) = n·xⁿ⁻¹. Entonces la derivada de x² es 2x.',
@@ -803,6 +806,12 @@ export const BANCO = [
     explicacion: 'El método científico parte de la observación, formula hipótesis, experimenta y concluye.',
   },
 ]
+
+/**
+ * Banco completo: las preguntas base más el banco ampliado.
+ * Los profesores pueden usar cualquiera de ellas o crear las suyas.
+ */
+export const BANCO = [...BANCO_BASE, ...BANCO_AMPLIADO]
 
 /** Filtra el banco por grado y, opcionalmente, materia y tema. */
 export function filtrarBanco({ grado, materia, tema } = {}) {

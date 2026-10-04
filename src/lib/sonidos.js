@@ -72,6 +72,11 @@ export const sonidos = {
     const notas = [523, 659, 784, 1047]
     notas.forEach((n, i) => tono(n, i * 0.13, 0.2, 'sine', 0.16))
   },
+  /** Aviso corto cuando alguien termina una tarea (modo clase en vivo). */
+  nuevo() {
+    tono(784, 0, 0.12, 'sine', 0.14)
+    tono(1047, 0.11, 0.18, 'sine', 0.14)
+  },
   derrota() {
     const notas = [440, 392, 330, 262]
     notas.forEach((n, i) => tono(n, i * 0.15, 0.22, 'triangle', 0.13))

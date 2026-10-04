@@ -5,6 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
+import { calcularLogros, resumenEstudiante } from './logros.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const RAIZ = path.resolve(__dirname, '..')
@@ -22,7 +23,14 @@ const DURACION_SESION = HORAS_SESION * 60 * 60 * 1000
 /* ------------------------------------------------------------------ *
  *  Almacenamiento: un archivo JSON con escritura segura (cola + rename)
  * ------------------------------------------------------------------ */
-const ESTADO_VACIO = { config: null, sesiones: {}, tareas: [], intentos: [] }
+const ESTADO_VACIO = {
+  config: null,
+  sesiones: {},
+  sesionesEstudiante: {},
+  estudiantes: [],
+  tareas: [],
+  intentos: [],
+}
 
 const hashClave = (clave) => crypto.createHash('sha256').update(String(clave)).digest('hex')
 
@@ -34,6 +42,11 @@ function leerDb() {
     return {
       config: datos.config && typeof datos.config === 'object' ? datos.config : null,
       sesiones: datos.sesiones && typeof datos.sesiones === 'object' ? datos.sesiones : {},
+      sesionesEstudiante:
+        datos.sesionesEstudiante && typeof datos.sesionesEstudiante === 'object'
+          ? datos.sesionesEstudiante
+          : {},
+      estudiantes: Array.isArray(datos.estudiantes) ? datos.estudiantes : [],
       tareas: Array.isArray(datos.tareas) ? datos.tareas : [],
       intentos: Array.isArray(datos.intentos) ? datos.intentos : [],
     }
@@ -107,6 +120,15 @@ function precisionDe(lista) {
   )
 }
 
+/** Lunes de la semana a la que pertenece una fecha (YYYY-MM-DD). */
+function semanaDe(fecha) {
+  const d = new Date(fecha)
+  if (Number.isNaN(d.getTime())) return ''
+  const dia = (d.getUTCDay() + 6) % 7 // lunes = 0
+  d.setUTCDate(d.getUTCDate() - dia)
+  return d.toISOString().slice(0, 10)
+}
+
 /* ------------------------------------------------------------------ *
  *  Sesiones de profesor
  *
@@ -153,6 +175,97 @@ function soloProfesor(req, res, next) {
   }
   req.tokenProfe = token
   next()
+}
+
+/* ------------------------------------------------------------------ *
+ *  Sesiones de estudiante
+ * ------------------------------------------------------------------ */
+const MAX_SESIONES_POR_ESTUDIANTE = 8
+
+const publicoEstudiante = (e) => ({
+  id: e.id,
+  usuario: e.usuario,
+  nombre: e.nombre,
+  grado: e.grado,
+  avatar: e.avatar,
+  fecha: e.fecha,
+})
+
+function limpiarSesionesEstudianteVencidas() {
+  const ahora = Date.now()
+  let cambio = false
+  for (const [token, sesion] of Object.entries(db.sesionesEstudiante)) {
+    if (!sesion || !sesion.expira || sesion.expira <= ahora) {
+      delete db.sesionesEstudiante[token]
+      cambio = true
+    }
+  }
+  if (cambio) guardarDb()
+}
+
+function crearSesionEstudiante(estudianteId) {
+  const token = crypto.randomBytes(24).toString('hex')
+  db.sesionesEstudiante[token] = { expira: Date.now() + DURACION_SESION, estudianteId }
+  limpiarSesionesEstudianteVencidas()
+
+  // Se conservan solo las sesiones más recientes de cada estudiante.
+  const mias = Object.entries(db.sesionesEstudiante).filter(([, s]) => s.estudianteId === estudianteId)
+  if (mias.length > MAX_SESIONES_POR_ESTUDIANTE) {
+    mias.sort((a, b) => a[1].expira - b[1].expira)
+    for (const [tokenViejo] of mias.slice(0, mias.length - MAX_SESIONES_POR_ESTUDIANTE)) {
+      delete db.sesionesEstudiante[tokenViejo]
+    }
+  }
+  return token
+}
+
+/** Devuelve el estudiante de la petición, o null si no hay sesión válida. */
+function estudianteDePeticion(req) {
+  const token = req.get('x-token-estudiante') || ''
+  if (!token) return null
+  const sesion = db.sesionesEstudiante[token]
+  if (!sesion) return null
+  if (sesion.expira <= Date.now()) {
+    delete db.sesionesEstudiante[token]
+    guardarDb()
+    return null
+  }
+  return db.estudiantes.find((e) => e.id === sesion.estudianteId) || null
+}
+
+/** Middleware: exige sesión de estudiante. */
+function soloEstudiante(req, res, next) {
+  const estudiante = estudianteDePeticion(req)
+  if (!estudiante) {
+    return res.status(401).json({ error: 'Tu sesión de estudiante expiró. Vuelve a entrar.' })
+  }
+  req.estudiante = estudiante
+  next()
+}
+
+/** Historial de un estudiante, con la información de cada tarea. */
+function intentosDeEstudiante(estudianteId) {
+  return db.intentos
+    .filter((i) => i.estudianteId === estudianteId)
+    .sort((a, b) => (a.fecha < b.fecha ? 1 : -1))
+    .map((i) => {
+      const tarea = db.tareas.find((t) => t.id === i.tareaId)
+      return {
+        id: i.id,
+        codigo: i.codigo,
+        puntaje: i.puntaje,
+        correctas: i.correctas,
+        total: i.total,
+        segundos: i.segundos,
+        fecha: i.fecha,
+        respuestas: i.respuestas,
+        materia: tarea?.materia || '',
+        grado: tarea?.grado || '',
+        tema: tarea?.tema || '',
+        titulo: tarea?.titulo || '(tarea borrada)',
+        precision: i.total ? Math.round((i.correctas / i.total) * 100) : 0,
+      }
+    })
 }
 
 /* ------------------------------------------------------------------ *
@@ -217,6 +330,92 @@ app.post('/api/profesor/clave', soloProfesor, async (req, res) => {
 
   await guardarDb()
   res.json({ ok: true })
+})
+
+/* ---------------- Cuentas de estudiante ---------------- */
+
+const USUARIO_VALIDO = /^[a-zA-Z0-9._-]{3,20}$/
+
+app.post('/api/estudiante/registro', async (req, res) => {
+  const b = req.body || {}
+  const usuario = limpiarTexto(b.usuario, 20).toLowerCase()
+  const clave = limpiarTexto(b.clave, 100)
+  const nombre = limpiarTexto(b.nombre, 60)
+  const grado = limpiarTexto(b.grado, 3)
+  const avatar = limpiarTexto(b.avatar, 8) || '🐯'
+
+  if (!nombre) return res.status(400).json({ error: 'Escribe tu nombre.' })
+  if (!USUARIO_VALIDO.test(usuario)) {
+    return res.status(400).json({
+      error: 'El usuario debe tener entre 3 y 20 caracteres: letras, números, punto, guion o guion bajo.',
+    })
+  }
+  if (clave.length < 4) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres.' })
+  }
+  if (db.estudiantes.some((e) => e.usuario === usuario)) {
+    return res.status(409).json({ error: 'Ese usuario ya está en uso. Elige otro.' })
+  }
+
+  const estudiante = {
+    id: id(),
+    usuario,
+    nombre,
+    grado,
+    avatar,
+    claveHash: hashClave(clave),
+    fecha: new Date().toISOString(),
+  }
+  db.estudiantes.push(estudiante)
+
+  const token = crearSesionEstudiante(estudiante.id)
+  await guardarDb()
+  res.status(201).json({ token, estudiante: publicoEstudiante(estudiante) })
+})
+
+app.post('/api/estudiante/entrar', async (req, res) => {
+  const b = req.body || {}
+  const usuario = limpiarTexto(b.usuario, 20).toLowerCase()
+  const clave = limpiarTexto(b.clave, 100)
+
+  const estudiante = db.estudiantes.find((e) => e.usuario === usuario)
+  if (!estudiante || hashClave(clave) !== estudiante.claveHash) {
+    return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' })
+  }
+
+  const token = crearSesionEstudiante(estudiante.id)
+  await guardarDb()
+  res.json({ token, estudiante: publicoEstudiante(estudiante) })
+})
+
+app.post('/api/estudiante/salir', async (req, res) => {
+  delete db.sesionesEstudiante[req.get('x-token-estudiante') || '']
+  await guardarDb()
+  res.json({ ok: true })
+})
+
+app.get('/api/estudiante/perfil', soloEstudiante, (req, res) => {
+  const intentos = intentosDeEstudiante(req.estudiante.id)
+  res.json({
+    estudiante: publicoEstudiante(req.estudiante),
+    resumen: resumenEstudiante(intentos),
+    logros: calcularLogros(intentos),
+    intentos,
+  })
+})
+
+app.put('/api/estudiante/perfil', soloEstudiante, async (req, res) => {
+  const b = req.body || {}
+  const nombre = limpiarTexto(b.nombre, 60)
+  const grado = limpiarTexto(b.grado, 3)
+  const avatar = limpiarTexto(b.avatar, 8)
+
+  if (nombre) req.estudiante.nombre = nombre
+  if (grado) req.estudiante.grado = grado
+  if (avatar) req.estudiante.avatar = avatar
+
+  await guardarDb()
+  res.json({ estudiante: publicoEstudiante(req.estudiante) })
 })
 
 /* ---------------- Tareas (profesor) ---------------- */
@@ -312,12 +511,16 @@ app.post('/api/intentos', async (req, res) => {
   const respuestas = Array.isArray(b.respuestas) ? b.respuestas.slice(0, 60) : []
   const correctas = respuestas.filter((r) => r && r.correcta).length
 
+  // Si el estudiante tiene cuenta, se usa su identidad real (no la que mande el cliente).
+  const cuenta = estudianteDePeticion(req)
+
   const intento = {
     id: id(),
     tareaId: tarea.id,
     codigo: tarea.codigo,
-    estudiante: limpiarTexto(b.estudiante, 60) || 'Estudiante',
-    avatar: limpiarTexto(b.avatar, 8) || '🐯',
+    estudianteId: cuenta?.id || null,
+    estudiante: cuenta ? cuenta.nombre : limpiarTexto(b.estudiante, 60) || 'Estudiante',
+    avatar: cuenta ? cuenta.avatar : limpiarTexto(b.avatar, 8) || '🐯',
     puntaje: Math.max(0, Math.min(100000, Number(b.puntaje) || 0)),
     correctas,
     total: tarea.preguntas.length,
@@ -457,6 +660,145 @@ app.get('/api/profesor/resumen', soloProfesor, (_req, res) => {
       }))
       .sort((a, b) => b.intentos - a.intentos)
   }
+})
+
+/* ---------------- Reportes comparativos ---------------- */
+
+app.get('/api/profesor/reportes', soloProfesor, (_req, res) => {
+  const conTarea = db.intentos.map((i) => ({
+    ...i,
+    tarea: db.tareas.find((t) => t.id === i.tareaId) || null,
+  }))
+
+  const agrupar = (clave) => {
+    const mapa = new Map()
+    for (const i of conTarea) {
+      const k = String(clave(i) || 'Sin dato')
+      if (!mapa.has(k)) mapa.set(k, [])
+      mapa.get(k).push(i)
+    }
+    return [...mapa.entries()]
+      .map(([nombre, lista]) => ({
+        nombre,
+        intentos: lista.length,
+        estudiantes: new Set(lista.map((i) => String(i.estudiante).toLowerCase())).size,
+        precision: precisionDe(lista),
+        puntajePromedio: Math.round(lista.reduce((s, i) => s + i.puntaje, 0) / lista.length),
+      }))
+      .sort((a, b) => b.intentos - a.intentos)
+  }
+
+  // Evolución por semana (las últimas 8 con actividad).
+  const semanaMapa = new Map()
+  for (const i of conTarea) {
+    const semana = semanaDe(i.fecha)
+    if (!semana) continue
+    if (!semanaMapa.has(semana)) semanaMapa.set(semana, [])
+    semanaMapa.get(semana).push(i)
+  }
+  const porSemana = [...semanaMapa.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .slice(-8)
+    .map(([semana, lista]) => ({
+      semana,
+      intentos: lista.length,
+      precision: precisionDe(lista),
+    }))
+
+  // Detalle por tarea, para encontrar lo que más se falla.
+  const tareas = db.tareas
+    .map((t) => {
+      const lista = conTarea.filter((i) => i.tareaId === t.id)
+      const preguntas = t.preguntas.map((p) => {
+        const rel = lista
+          .map((i) => (i.respuestas || []).find((r) => r.preguntaId === p.id))
+          .filter(Boolean)
+        const aciertos = rel.filter((r) => r.correcta).length
+        return {
+          enunciado: p.enunciado,
+          tipo: p.tipo,
+          respondida: rel.length,
+          porcentaje: rel.length ? Math.round((aciertos / rel.length) * 100) : 0,
+        }
+      })
+      return {
+        codigo: t.codigo,
+        titulo: t.titulo,
+        grado: t.grado,
+        materia: t.materia,
+        tema: t.tema,
+        intentos: lista.length,
+        estudiantes: new Set(lista.map((i) => String(i.estudiante).toLowerCase())).size,
+        precision: lista.length ? precisionDe(lista) : 0,
+        puntajePromedio: lista.length ? Math.round(lista.reduce((s, i) => s + i.puntaje, 0) / lista.length) : 0,
+        preguntas,
+      }
+    })
+    .filter((t) => t.intentos > 0)
+
+  res.json({
+    totales: {
+      tareas: db.tareas.length,
+      intentos: conTarea.length,
+      estudiantes: new Set(conTarea.map((i) => String(i.estudiante).toLowerCase())).size,
+      estudiantesConCuenta: new Set(conTarea.map((i) => i.estudianteId).filter(Boolean)).size,
+      precision: precisionDe(conTarea),
+      puntajePromedio: conTarea.length
+        ? Math.round(conTarea.reduce((s, i) => s + i.puntaje, 0) / conTarea.length)
+        : 0,
+    },
+    porMateria: agrupar((i) => i.tarea?.materia),
+    porGrado: agrupar((i) => i.tarea?.grado),
+    porCombinacion: agrupar((i) => (i.tarea ? `${i.tarea.grado}° · ${i.tarea.materia}` : null)),
+    porSemana,
+    tareas: tareas.sort((a, b) => a.precision - b.precision),
+  })
+})
+
+/* ---------------- Modo clase en vivo ---------------- */
+
+app.get('/api/tareas/:codigo/en-vivo', soloProfesor, (req, res) => {
+  const codigo = limpiarTexto(req.params.codigo, 12).toUpperCase()
+  const tarea = db.tareas.find((t) => t.codigo === codigo)
+  if (!tarea) return res.status(404).json({ error: 'Tarea no encontrada.' })
+
+  const todos = db.intentos.filter((i) => i.tareaId === tarea.id)
+  const desde = limpiarTexto(req.query.desde, 40)
+
+  const resumir = (i) => ({
+    id: i.id,
+    estudiante: i.estudiante,
+    avatar: i.avatar,
+    puntaje: i.puntaje,
+    correctas: i.correctas,
+    total: i.total,
+    segundos: i.segundos,
+    precision: i.total ? Math.round((i.correctas / i.total) * 100) : 0,
+    fecha: i.fecha,
+  })
+
+  res.json({
+    tarea: {
+      codigo: tarea.codigo,
+      titulo: tarea.titulo,
+      grado: tarea.grado,
+      materia: tarea.materia,
+      tema: tarea.tema,
+      totalPreguntas: tarea.preguntas.length,
+    },
+    total: todos.length,
+    estudiantes: new Set(todos.map((i) => String(i.estudiante).toLowerCase())).size,
+    precision: precisionDe(todos),
+    puntajePromedio: todos.length
+      ? Math.round(todos.reduce((s, i) => s + i.puntaje, 0) / todos.length)
+      : 0,
+    ranking: [...todos]
+      .sort((a, b) => b.puntaje - a.puntaje || (a.segundos || 0) - (b.segundos || 0))
+      .slice(0, 30)
+      .map(resumir),
+    nuevos: (desde ? todos.filter((i) => i.fecha > desde) : []).map(resumir),
+    ahora: new Date().toISOString(),
+  })
 })
 
 /* ------------------------------------------------------------------ *

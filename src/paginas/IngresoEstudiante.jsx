@@ -1,25 +1,57 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api } from '../lib/api.js'
+import {
+  api,
+  getTokenEstudiante,
+  getEstudianteLocal,
+  setEstudianteLocal,
+  setTokenEstudiante,
+} from '../lib/api.js'
+import { AVATARES } from '../lib/util.js'
 import Boton from '../components/Boton.jsx'
 import { Campo, Cargando } from '../components/Ui.jsx'
 
-const AVATARES = ['🐯', '🦊', '🐼', '🐨', '🦁', '🐸', '🐵', '🦄', '🐶', '🐱', '🐢', '🦉']
-
-/** Ingreso del estudiante: código + nombre + avatar. */
+/** Ingreso del estudiante: cuenta propia o juego rápido sin cuenta. */
 export default function IngresoEstudiante() {
   const navegar = useNavigate()
   const [params] = useSearchParams()
 
+  const [estudiante, setEstudiante] = useState(getEstudianteLocal())
+  const [comprobando, setComprobando] = useState(Boolean(getTokenEstudiante()))
   const [codigo, setCodigo] = useState((params.get('codigo') || '').toUpperCase())
   const [nombre, setNombre] = useState('')
   const [avatar, setAvatar] = useState(AVATARES[0])
   const [tarea, setTarea] = useState(null)
-  const [cargandoTarea, setCargandoTarea] = useState(false)
   const [error, setError] = useState('')
   const [buscando, setBuscando] = useState(false)
 
-  // Si llega un código por la URL (QR), se consulta automáticamente.
+  // Si hay una cuenta guardada, se comprueba que la sesión siga siendo válida.
+  useEffect(() => {
+    if (!getTokenEstudiante()) {
+      setComprobando(false)
+      return
+    }
+    let vigente = true
+    api
+      .perfilEstudiante()
+      .then((datos) => {
+        if (!vigente) return
+        setEstudianteLocal(datos.estudiante)
+        setEstudiante(datos.estudiante)
+      })
+      .catch(() => {
+        if (!vigente) return
+        setTokenEstudiante(null)
+        setEstudianteLocal(null)
+        setEstudiante(null)
+      })
+      .finally(() => vigente && setComprobando(false))
+    return () => {
+      vigente = false
+    }
+  }, [])
+
+  // Si el código llega por la URL (QR), se consulta solo.
   useEffect(() => {
     const inicial = (params.get('codigo') || '').trim().toUpperCase()
     if (inicial.length >= 4) buscar(inicial, false)
@@ -45,23 +77,37 @@ export default function IngresoEstudiante() {
       return null
     } finally {
       setBuscando(false)
-      setCargandoTarea(false)
     }
   }
 
   async function enviar(e) {
     e.preventDefault()
     setError('')
-    if (!nombre.trim()) {
+
+    const quienJuega = estudiante
+      ? { nombre: estudiante.nombre, avatar: estudiante.avatar }
+      : { nombre: nombre.trim(), avatar }
+
+    if (!quienJuega.nombre) {
       setError('Escribe tu nombre para empezar.')
       return
     }
+
     const encontrada = tarea?.codigo === codigo.trim().toUpperCase() ? tarea : await buscar(codigo)
     if (!encontrada) return
+
     navegar(`/jugar/${encontrada.codigo}`, {
-      state: { estudiante: nombre.trim(), avatar, tarea: encontrada },
+      state: { estudiante: quienJuega.nombre, avatar: quienJuega.avatar, tarea: encontrada },
     })
   }
+
+  async function cambiarDeCuenta() {
+    await api.salirEstudiante()
+    setEstudiante(null)
+    setNombre('')
+  }
+
+  if (comprobando) return <Cargando texto="Revisando tu cuenta…" />
 
   return (
     <div className="contenedor-angosto">
@@ -70,6 +116,30 @@ export default function IngresoEstudiante() {
         <p className="ayuda" style={{ marginBottom: 18 }}>
           Pide a tu profe el código de la tarea y escríbelo aquí.
         </p>
+
+        {estudiante ? (
+          <div className="exito" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: '1.8rem' }}>{estudiante.avatar}</span>
+            <div style={{ flex: 1 }}>
+              <strong>¡Hola, {estudiante.nombre}!</strong>
+              <div style={{ fontSize: '0.85rem' }}>
+                Tus puntos e insignias se guardarán en tu cuenta.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="aviso">
+            ¿Quieres guardar tus puntos e insignias?{' '}
+            <button className="enlace" onClick={() => navegar('/cuenta?volver=/entrar')}>
+              Entra a tu cuenta
+            </button>{' '}
+            o{' '}
+            <button className="enlace" onClick={() => navegar('/cuenta?modo=crear&volver=/entrar')}>
+              crea una
+            </button>
+            . También puedes jugar sin cuenta.
+          </div>
+        )}
 
         {error && <div className="error">{error}</div>}
 
@@ -90,10 +160,7 @@ export default function IngresoEstudiante() {
               />
               <Boton
                 variante="fantasma"
-                onClick={() => {
-                  setCargandoTarea(true)
-                  buscar(codigo)
-                }}
+                onClick={() => buscar(codigo)}
                 disabled={buscando}
                 style={{ flex: '0 0 auto' }}
               >
@@ -101,8 +168,6 @@ export default function IngresoEstudiante() {
               </Boton>
             </div>
           </Campo>
-
-          {cargandoTarea && <Cargando texto="Buscando la tarea…" />}
 
           {tarea && (
             <div className="exito">
@@ -113,35 +178,50 @@ export default function IngresoEstudiante() {
             </div>
           )}
 
-          <Campo etiqueta="Tu nombre">
-            <input
-              type="text"
-              placeholder="Ej: Ana María Rojas"
-              maxLength={60}
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-            />
-          </Campo>
+          {!estudiante && (
+            <>
+              <Campo etiqueta="Tu nombre">
+                <input
+                  type="text"
+                  placeholder="Ej: Ana María Rojas"
+                  maxLength={60}
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                />
+              </Campo>
 
-          <Campo etiqueta="Elige tu avatar">
-            <div className="avatares">
-              {AVATARES.map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  className={`avatar ${avatar === a ? 'activo' : ''}`}
-                  onClick={() => setAvatar(a)}
-                >
-                  {a}
-                </button>
-              ))}
-            </div>
-          </Campo>
+              <Campo etiqueta="Elige tu avatar">
+                <div className="avatares">
+                  {AVATARES.map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      className={`avatar ${avatar === a ? 'activo' : ''}`}
+                      onClick={() => setAvatar(a)}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </Campo>
+            </>
+          )}
 
           <Boton variante="amarillo" tamano="grande" bloque type="submit" disabled={buscando}>
             🚀 ¡Empezar a jugar!
           </Boton>
         </form>
+
+        {estudiante && (
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+            <Boton variante="primario" mini onClick={() => navegar('/progreso')}>
+              📈 Mi progreso
+            </Boton>
+            <Boton variante="fantasma" mini onClick={cambiarDeCuenta}>
+              🔄 Cambiar de cuenta
+            </Boton>
+          </div>
+        )}
       </div>
 
       <div style={{ textAlign: 'center', marginTop: 16 }}>

@@ -116,6 +116,9 @@ export async function copiarTexto(texto) {
   }
 }
 
+/** Avatares disponibles para estudiantes y profesores. */
+export const AVATARES = ['🐯', '🦊', '🐼', '🐨', '🦁', '🐸', '🐵', '🦄', '🐶', '🐱', '🐢', '🦉', '🐙', '🦖']
+
 /** Etiqueta legible de un tipo de pregunta. */
 export const ETIQUETA_TIPO = {
   multiple: 'Opción múltiple',

@@ -4,11 +4,15 @@ import { sonidos } from './lib/sonidos.js'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Inicio from './paginas/Inicio.jsx'
 import IngresoEstudiante from './paginas/IngresoEstudiante.jsx'
+import CuentaEstudiante from './paginas/CuentaEstudiante.jsx'
+import MiProgreso from './paginas/MiProgreso.jsx'
 import Jugar from './paginas/Jugar.jsx'
 import Resultado from './paginas/Resultado.jsx'
 import Profesor from './paginas/Profesor.jsx'
 import CrearTarea from './paginas/CrearTarea.jsx'
 import VerResultados from './paginas/VerResultados.jsx'
+import Reportes from './paginas/Reportes.jsx'
+import EnVivo from './paginas/EnVivo.jsx'
 
 export default function App() {
   const navegar = useNavigate()
@@ -38,10 +42,14 @@ export default function App() {
         <Routes>
         <Route path="/" element={<Inicio />} />
         <Route path="/entrar" element={<IngresoEstudiante />} />
+        <Route path="/cuenta" element={<CuentaEstudiante />} />
+        <Route path="/progreso" element={<MiProgreso />} />
         <Route path="/jugar/:codigo" element={<Jugar />} />
         <Route path="/resultado" element={<Resultado />} />
         <Route path="/profesor" element={<Profesor />} />
         <Route path="/profesor/crear" element={<CrearTarea />} />
+        <Route path="/profesor/reportes" element={<Reportes />} />
+        <Route path="/profesor/vivo/:codigo" element={<EnVivo />} />
         <Route path="/profesor/tarea/:codigo" element={<VerResultados />} />
         <Route
           path="*"

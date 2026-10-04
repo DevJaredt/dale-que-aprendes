@@ -221,6 +221,9 @@ export default function Profesor() {
           <Boton variante="fantasma" mini onClick={cargar}>
             🔄 Actualizar
           </Boton>
+          <Boton variante="fantasma" mini onClick={() => navegar('/profesor/reportes')}>
+            📈 Reportes
+          </Boton>
           <Boton variante="amarillo" onClick={() => navegar('/profesor/crear')}>
             ➕ Crear tarea
           </Boton>
@@ -376,6 +379,9 @@ export default function Profesor() {
                   <div className="acciones-tarea">
                     <Boton variante="primario" mini onClick={() => navegar(`/profesor/tarea/${t.codigo}`)}>
                       📊 Resultados
+                    </Boton>
+                    <Boton variante="verde" mini onClick={() => navegar(`/profesor/vivo/${t.codigo}`)}>
+                      🔴 En vivo
                     </Boton>
                     <Boton variante="fantasma" mini onClick={() => copiar(t.codigo, 'Código copiado')}>
                       📋 Código

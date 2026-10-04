@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BANCO } from '../data/bancoPreguntas.js'
+import { getEstudianteLocal } from '../lib/api.js'
+import Boton from '../components/Boton.jsx'
 
 /** Portada: elegir entre estudiante y profesor. */
 export default function Inicio() {
   const navegar = useNavigate()
   const [codigo, setCodigo] = useState('')
+  const estudiante = getEstudianteLocal()
 
   const entrarConCodigo = (e) => {
     e.preventDefault()
@@ -16,6 +19,18 @@ export default function Inicio() {
   return (
     <div className="centrado">
       <div className="portada">
+        {estudiante && (
+          <div className="barra-cuenta">
+            <span style={{ fontSize: '1.6rem' }}>{estudiante.avatar}</span>
+            <span>
+              ¡Hola, <strong>{estudiante.nombre}</strong>!
+            </span>
+            <Boton variante="primario" mini onClick={() => navegar('/progreso')}>
+              📈 Mi progreso
+            </Boton>
+          </div>
+        )}
+
         <span className="burbuja">🎈</span>
         <h1>¡Dale Que Aprendes!</h1>
         <p className="lema">
