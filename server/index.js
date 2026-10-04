@@ -15,12 +15,14 @@ const PUERTO = Number(process.env.PORT || 3000)
 
 /** Clave inicial de los profesores (se puede cambiar desde el panel o con CLAVE_PROFESOR). */
 const CLAVE_INICIAL = process.env.CLAVE_PROFESOR || 'dale2026'
-const DURACION_SESION = 12 * 60 * 60 * 1000 // 12 horas
+/** Duración de la sesión del profesor (por defecto 7 días). */
+const HORAS_SESION = Number(process.env.SESION_HORAS) > 0 ? Number(process.env.SESION_HORAS) : 7 * 24
+const DURACION_SESION = HORAS_SESION * 60 * 60 * 1000
 
 /* ------------------------------------------------------------------ *
  *  Almacenamiento: un archivo JSON con escritura segura (cola + rename)
  * ------------------------------------------------------------------ */
-const ESTADO_VACIO = { config: null, tareas: [], intentos: [] }
+const ESTADO_VACIO = { config: null, sesiones: {}, tareas: [], intentos: [] }
 
 const hashClave = (clave) => crypto.createHash('sha256').update(String(clave)).digest('hex')
 
@@ -31,6 +33,7 @@ function leerDb() {
     const datos = JSON.parse(crudo)
     return {
       config: datos.config && typeof datos.config === 'object' ? datos.config : null,
+      sesiones: datos.sesiones && typeof datos.sesiones === 'object' ? datos.sesiones : {},
       tareas: Array.isArray(datos.tareas) ? datos.tareas : [],
       intentos: Array.isArray(datos.intentos) ? datos.intentos : [],
     }
@@ -61,6 +64,9 @@ if (!db.config) {
   db.config = { claveHash: hashClave(CLAVE_INICIAL) }
   guardarDb()
 }
+
+// Se descartan las sesiones de profesor que ya vencieron.
+limpiarSesionesVencidas()
 
 /* ------------------------------------------------------------------ *
  *  Utilidades
@@ -102,21 +108,38 @@ function precisionDe(lista) {
 }
 
 /* ------------------------------------------------------------------ *
- *  Sesiones de profesor (token en memoria)
+ *  Sesiones de profesor
+ *
+ *  Se guardan en el archivo de datos (no en memoria) para que sigan
+ *  siendo válidas cuando el servidor se reinicia. Así el profesor no
+ *  pierde la sesión cada vez que se apaga y se enciende el servidor.
  * ------------------------------------------------------------------ */
-const sesiones = new Map() // token -> { expira }
+function limpiarSesionesVencidas() {
+  const ahora = Date.now()
+  let cambio = false
+  for (const [token, expira] of Object.entries(db.sesiones)) {
+    if (!expira || expira <= ahora) {
+      delete db.sesiones[token]
+      cambio = true
+    }
+  }
+  if (cambio) guardarDb()
+}
 
 function crearSesion() {
   const token = crypto.randomBytes(24).toString('hex')
-  sesiones.set(token, { expira: Date.now() + DURACION_SESION })
+  db.sesiones[token] = Date.now() + DURACION_SESION
+  limpiarSesionesVencidas()
   return token
 }
 
 function sesionValida(token) {
-  const sesion = sesiones.get(token)
-  if (!sesion) return false
-  if (sesion.expira < Date.now()) {
-    sesiones.delete(token)
+  if (!token) return false
+  const expira = db.sesiones[token]
+  if (!expira) return false
+  if (expira <= Date.now()) {
+    delete db.sesiones[token]
+    guardarDb()
     return false
   }
   return true
@@ -126,8 +149,7 @@ function sesionValida(token) {
 function soloProfesor(req, res, next) {
   const token = req.get('x-token-profe') || ''
   if (!sesionValida(token)) {
-    sesiones.delete(token)
-    return res.status(401).json({ error: 'Sesión de profesor no válida. Vuelve a entrar.' })
+    return res.status(401).json({ error: 'Tu sesión de profesor expiró. Vuelve a entrar.' })
   }
   req.tokenProfe = token
   next()
@@ -146,16 +168,16 @@ app.use('/api', (_req, res, next) => {
 })
 
 app.get('/api/salud', (_req, res) => {
-  res.json({ ok: true, version: 2, hora: new Date().toISOString() })
+  res.json({ ok: true, version: 3, hora: new Date().toISOString() })
 })
 
 /* ---------------- Sesión de profesor ---------------- */
 
-app.get('/api/profesor/sesion', soloProfesor, (_req, res) => {
-  res.json({ ok: true })
+app.get('/api/profesor/sesion', soloProfesor, (req, res) => {
+  res.json({ ok: true, expira: db.sesiones[req.tokenProfe] || null })
 })
 
-app.post('/api/profesor/entrar', (req, res) => {
+app.post('/api/profesor/entrar', async (req, res) => {
   const clave = limpiarTexto(req.body?.clave, 100)
   if (!clave) return res.status(400).json({ error: 'Escribe la clave de profesor.' })
 
@@ -163,12 +185,15 @@ app.post('/api/profesor/entrar', (req, res) => {
     return res.status(401).json({ error: 'Clave incorrecta. Vuelve a intentarlo.' })
   }
 
-  res.json({ token: crearSesion() })
+  const token = crearSesion()
+  await guardarDb()
+  res.json({ token, expira: db.sesiones[token] })
 })
 
-app.post('/api/profesor/salir', (req, res) => {
+app.post('/api/profesor/salir', async (req, res) => {
   const token = req.get('x-token-profe') || ''
-  sesiones.delete(token)
+  delete db.sesiones[token]
+  await guardarDb()
   res.json({ ok: true })
 })
 
@@ -184,9 +209,11 @@ app.post('/api/profesor/clave', soloProfesor, async (req, res) => {
   }
 
   db.config.claveHash = hashClave(nueva)
-  // Se cierran las demás sesiones por seguridad.
+  // Se cierran las demás sesiones por seguridad (la actual se conserva).
   const tokenActual = req.tokenProfe
-  for (const t of sesiones.keys()) if (t !== tokenActual) sesiones.delete(t)
+  for (const t of Object.keys(db.sesiones)) {
+    if (t !== tokenActual) delete db.sesiones[t]
+  }
 
   await guardarDb()
   res.json({ ok: true })

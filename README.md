@@ -35,7 +35,29 @@ $env:CLAVE_PROFESOR = "mi-clave-segura"
 npm start
 ```
 
-> Si olvidas la clave, bórrala de `server/data/db.json` (la propiedad `config`) y al reiniciar vuelve a `dale2026`.
+### La sesión se recuerda
+
+Al entrar, la sesión del profesor dura **7 días** y **se guarda en disco**, así que
+sigue siendo válida aunque apagues y vuelvas a encender el servidor: no hay que
+escribir la clave cada vez. Se puede ajustar con `SESION_HORAS`:
+
+```powershell
+$env:SESION_HORAS = "24"
+npm start
+```
+
+### ¿Olvidaste la clave?
+
+No hay problema, se restablece sin perder nada (tareas ni resultados):
+
+```powershell
+npm run clave:reset                # vuelve a "dale2026"
+npm run clave:reset -- mi-clave    # o establece la que quieras
+```
+
+> Esto cierra las sesiones abiertas. Si el servidor está encendido, reinícialo.
+
+Los estudiantes **nunca** necesitan clave: solo ingresan el código de la tarea y su nombre.
 
 ---
 
@@ -76,13 +98,14 @@ Levanta el servidor y Vite con recarga automática en `http://localhost:5173`.
 ### Pruebas
 
 ```bash
-npm test          # 27 pruebas: API y simulación de estudiantes/profesores
+npm test          # 32 pruebas: API, interfaz y persistencia de sesión
 npm run test:render   # verifica que todas las páginas y tipos de pregunta rendericen
 ```
 
 Las pruebas de interfaz simulan a un estudiante respondiendo los 5 tipos de pregunta
 y a un profesor entrando al panel. Las de API verifican la autenticación, la creación
-de tareas y los porcentajes del dashboard.
+de tareas y los porcentajes del dashboard. Y hay una que **apaga y enciende el
+servidor de verdad** para comprobar que la sesión del profesor no se pierde.
 
 ---
 
@@ -111,6 +134,7 @@ app-juego/
 ├─ server/index.js          # API + sirve la app compilada + imprime IP y QR
 ├─ server/data/db.json      # tareas, resultados y clave (se crea solo, no se sube a git)
 ├─ scripts/smoke.mjs        # prueba de render de todas las páginas
+├─ scripts/clave-reset.mjs  # restablece la clave de profesores
 ├─ vitest.config.js         # configuración de las pruebas
 └─ src/
    ├─ data/curriculo.js     # grados → materias → temas (base curricular)

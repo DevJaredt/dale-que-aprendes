@@ -27,7 +27,8 @@ const leerNombreLocal = () => {
 export default function Profesor() {
   const navegar = useNavigate()
 
-  const [sesion, setSesion] = useState('comprobando') // comprobando | fuera | dentro
+  const [sesion, setSesion] = useState('comprobando') // comprobando | fuera | sin-conexion | dentro
+  const [motivo, setMotivo] = useState('')
   const [nombre, setNombre] = useState(leerNombreLocal)
   const [clave, setClave] = useState('')
   const [error, setError] = useState('')
@@ -40,20 +41,33 @@ export default function Profesor() {
   const [mostrarClave, setMostrarClave] = useState(false)
 
   /* -------------------- Sesión -------------------- */
-  useEffect(() => {
-    let vigente = true
+  const comprobarSesion = useCallback(async () => {
     if (!getTokenProfe()) {
       setSesion('fuera')
       return
     }
-    api
-      .validarSesion()
-      .then(() => vigente && setSesion('dentro'))
-      .catch(() => vigente && setSesion('fuera'))
-    return () => {
-      vigente = false
+    setSesion('comprobando')
+    setError('')
+    try {
+      await api.validarSesion()
+      setSesion('dentro')
+    } catch (e) {
+      if (esErrorDeSesion(e)) {
+        // La sesión ya no es válida (expiró o se cambió la clave).
+        setTokenProfe(null)
+        setMotivo('Tu sesión anterior terminó. Vuelve a entrar con tu clave.')
+        setSesion('fuera')
+      } else {
+        // Falla de red o servidor apagado: NO se cierra la sesión.
+        setError(`No pudimos conectar con el servidor. ${e.message}`)
+        setSesion('sin-conexion')
+      }
     }
   }, [])
+
+  useEffect(() => {
+    comprobarSesion()
+  }, [comprobarSesion])
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -87,6 +101,7 @@ export default function Profesor() {
       setTokenProfe(token)
       if (nombre.trim()) guardarNombreLocal(nombre.trim())
       setClave('')
+      setMotivo('')
       setSesion('dentro')
     } catch (err) {
       setError(err.message)
@@ -99,6 +114,7 @@ export default function Profesor() {
     await api.salirProfesor()
     setResumen(null)
     setTareas([])
+    setMotivo('')
     setSesion('fuera')
   }
 
@@ -124,6 +140,25 @@ export default function Profesor() {
 
   if (sesion === 'comprobando') return <Cargando texto="Verificando sesión…" />
 
+  if (sesion === 'sin-conexion') {
+    return (
+      <div className="contenedor-angosto">
+        <div className="tarjeta">
+          <Vacio emoji="📡" titulo="Sin conexión con el servidor" texto={error}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Boton variante="primario" onClick={comprobarSesion}>
+                🔄 Reintentar
+              </Boton>
+              <Boton variante="fantasma" onClick={() => navegar('/')}>
+                ← Inicio
+              </Boton>
+            </div>
+          </Vacio>
+        </div>
+      </div>
+    )
+  }
+
   if (sesion === 'fuera') {
     return (
       <div className="contenedor-angosto">
@@ -134,6 +169,7 @@ export default function Profesor() {
             Esta sección es solo para docentes: aquí se crean las tareas y se ven los resultados.
           </p>
 
+          {motivo && <div className="aviso">{motivo}</div>}
           {error && <div className="error">{error}</div>}
 
           <form onSubmit={entrar}>

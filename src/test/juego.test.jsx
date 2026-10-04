@@ -251,4 +251,34 @@ describe('Panel del profesor', () => {
     montar('/profesor/crear')
     await waitFor(() => expect(screen.getByText(/Ingreso de profesores/)).toBeInTheDocument())
   })
+
+  it('mantiene al profesor dentro si el servidor no responde (falla de red)', async () => {
+    setTokenProfe('token-test')
+    global.fetch = vi.fn(async () => {
+      throw new Error('Failed to fetch')
+    })
+    montar('/profesor')
+
+    await waitFor(() => expect(screen.getByText(/Sin conexión con el servidor/)).toBeInTheDocument())
+    // No debe mostrar el formulario de clave.
+    expect(screen.queryByText(/Clave de profesor/)).not.toBeInTheDocument()
+    // Y conserva el token para reintentar.
+    expect(localStorage.getItem('dqa_profe_token')).toBe('token-test')
+  })
+
+  it('avisa cuando la sesión caducó en lugar de expulsar en silencio', async () => {
+    setTokenProfe('token-viejo')
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/api/profesor/sesion')) {
+        return respuestaJson({ error: 'Tu sesión de profesor expiró.' }, 401)
+      }
+      return respuestaJson({ ok: true })
+    })
+    montar('/profesor')
+
+    await waitFor(() => expect(screen.getByText(/Ingreso de profesores/)).toBeInTheDocument())
+    expect(screen.getByText(/Tu sesión anterior terminó/)).toBeInTheDocument()
+    // El token viejo se descarta.
+    expect(localStorage.getItem('dqa_profe_token')).toBeNull()
+  })
 })
