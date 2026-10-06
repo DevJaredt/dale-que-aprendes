@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "concurrently -k -n SERVIDOR,VITE -c yellow,cyan \"node server/index.js\" \"vite\"",
     "build": "vite build",
+    "prestart": "node scripts/asegurar-build.mjs",
     "start": "node server/index.js",
     "server": "node server/index.js",
     "preview": "vite preview",

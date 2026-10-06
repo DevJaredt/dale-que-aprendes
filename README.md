@@ -67,13 +67,17 @@ Los estudiantes **nunca** necesitan clave: solo ingresan el código de la tarea 
 
 ## 🚀 Cómo usarlo en el colegio (modo aula)
 
+> 📄 ¿Vas a pasarlo a otra persona para que lo muestre? Tiene su propia guía:
+> **[GUIA-RAPIDA.md](GUIA-RAPIDA.md)**
+
 Requisitos: [Node.js](https://nodejs.org) 18 o superior.
 
 ```bash
 npm install     # solo la primera vez
-npm run build   # compila la aplicación
-npm start       # enciende el servidor
+npm start       # compila solo la primera vez y enciende el servidor
 ```
+
+> Si necesitas compilar a mano (por ejemplo tras cambiar el diseño): `npm run build`
 
 La consola te muestra **todas** las direcciones de tu computador y marca la que deben usar:
 
